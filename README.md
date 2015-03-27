@@ -1,4 +1,4 @@
-# DeviceBmp v0.1.0
+# DeviceBmp v0.1.1
 
 *EXIF aware AS3 AIR class to obtain image bitmapdata via CameraUI or CameraRoll on mobile 
 or file browse on desktop*
@@ -19,10 +19,8 @@ DeviceBmp(source:uint, onSuccess:Function, onCancel:Function, onError:Function, 
 
 - `source`  
   *Type: uint constant  
-  `DeviceBmp.RESIZE_MODE_LETTERBOX`  
-  `DeviceBmp.RESIZE_MODE_NOGAPS`  
-  `DeviceBmp.RESIZE_MODE_FIT_WIDTH`  
-  `DeviceBmp.RESIZE_MODE_FIT_HEIGHT`*  
+  `DeviceBmp.SOURCE_CAMERA`  
+  `DeviceBmp.SOURCE_BROWSE`  
   *Required: Yes*  
   The source to obtain the bitmap		
 - `onSuccess`    
@@ -116,4 +114,5 @@ override public function dispose():void {
 
 ### Release History ###
 
+- v0.1.1 - Documentation
 - v0.1.0 - First release. Tested with AIR 17 / iOS / Mac desktop.
