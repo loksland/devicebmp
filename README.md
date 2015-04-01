@@ -1,4 +1,4 @@
-# DeviceBmp v0.1.1
+# DeviceBmp v0.1.2
 
 *EXIF aware AS3 AIR class to obtain image bitmapdata via CameraUI or CameraRoll on mobile 
 or file browse on desktop*
@@ -114,5 +114,6 @@ override public function dispose():void {
 
 ### Release History ###
 
+- v0.1.2 - Thumbnail generation
 - v0.1.1 - Documentation
 - v0.1.0 - First release. Tested with AIR 17 / iOS / Mac desktop.

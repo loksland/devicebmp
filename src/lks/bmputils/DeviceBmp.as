@@ -1,4 +1,4 @@
-﻿package devicebmp {
+﻿package lks.bmputils {
 	
 	import flash.display.Loader;
 	import flash.media.CameraUI;
@@ -36,16 +36,7 @@
 		
 		public static const SOURCE_CAMERA:uint = 0;
 		public static const SOURCE_BROWSE:uint = 1;
-		
-		// Constrain within destination bounds, leaving letterbox strips if aspects ratios do not match
-		public static const RESIZE_MODE_LETTERBOX:uint=0; 		
-		// Cover width and height of destination bounds, hanging over sides / tops if aspects ratios do not match
-		public static const RESIZE_MODE_NOGAPS:uint=1;
-		// Use destination bounds width, scale height proportionally
-		public static const RESIZE_MODE_FIT_WIDTH:uint=2;
-		// Use destination bounds height, scale width proportionally
-		public static const RESIZE_MODE_FIT_HEIGHT:uint=3;
-		
+
 		private var onSuccess:Function;
 		private var onCancel:Function;
 		private var onError:Function;
@@ -56,10 +47,7 @@
 		private var exifLoader:ExifLoader;
 		private var exifInfo:ExifInfo
 		
-		private var destinationBounds:Rectangle;
-		private var resizeMode:uint;
-		private var hiQualityScaling:Boolean;
-		private var allowUpscale:Boolean;
+		private var outputOptions:Array;
 		
 		//- `source`  
 		//  *Type: uint constants `DeviceBmp.RESIZE_MODE_LETTERBOX`, `DeviceBmp.RESIZE_MODE_NOGAPS`, `DeviceBmp.RESIZE_MODE_FIT_WIDTH`, `DeviceBmp.RESIZE_MODE_FIT_HEIGHT`*
@@ -78,19 +66,6 @@
 		//  *Type: Function, Required: Yes*  
 		//  Called when error is encoutered with one message arg of type `String`
 		
-		//- `destinationBounds`  
-		//  *Type: Boolean, Required: No, Default: null*  
-		//  Optionally scale bitmap during processing to these bounds
-		
-		//- `resizeMode`  
-		//  *Type: uint constants `DeviceBmp.RESIZE_MODE_LETTERBOX`, `DeviceBmp.RESIZE_MODE_NOGAPS`, `DeviceBmp.RESIZE_MODE_FIT_WIDTH`, `DeviceBmp.RESIZE_MODE_FIT_HEIGHT`*
-		//  *Required: No, Default: DeviceBmp.RESIZE_MODE_LETTERBOX*  
-		//  How to resize the source bitmap relative to |destinationBounds|
-			
-		//- `hiQualityScaling`  
-		//  *Type: Boolean, Required: No, Default: true*  
-		//  Set the quality of scaling processes
-		
 		//- **|sourceFallbackEnabled|**  
 		//  *Type: Boolean, Required: No, Default: true*  
 		//  If camera not present will offer camera roll browse on mobile
@@ -99,15 +74,17 @@
 		//  *Type: Boolean, Required: No, Default: false*  
 		//  Whether to allow upscaling during scaling processes	
 		
-		public function DeviceBmp(source:uint, $onSuccess:Function, $onCancel:Function, $onError:Function, $destinationBounds:Rectangle = null, $resizeMode:uint = 0, $hiQualityScaling:Boolean = true, sourceFallbackEnabled:Boolean = true, $allowUpscale:Boolean = false) {
+		public function DeviceBmp(source:uint, $onSuccess:Function, $onCancel:Function, $onError:Function, sourceFallbackEnabled:Boolean = true, ... $outputOptions:Array) {
 		
 			onSuccess = $onSuccess;
 			onCancel = $onCancel;
 			onError = $onError;
-			destinationBounds = $destinationBounds;
-			resizeMode = $resizeMode;
-			hiQualityScaling = $hiQualityScaling;
-			allowUpscale = $allowUpscale;
+			
+			if ($outputOptions && $outputOptions.length == 1 && $outputOptions[0] is Array){				
+				$outputOptions = $outputOptions[0];
+			}
+			
+			outputOptions = $outputOptions;
 			
 			if(source == SOURCE_CAMERA && CameraUI.isSupported) {
                 
@@ -302,12 +279,7 @@
 			
 			var bmpdata:BitmapData = bitmap.bitmapData;
 			bitmap = null;
-			
-			if (destinationBounds != null && destinationBounds.width == destinationBounds.height){
-				// Shrink BEFORE rotate to improve performance
-				bmpdata = applyScaling(bmpdata);
-			}
-			
+						
 			if (exifInfo != null && exifInfo.ifds != null && exifInfo.ifds.primary != null){
 				
 				if (exifInfo.ifds.primary != null && exifInfo.ifds.exif != null && exifInfo.ifds.primary['Orientation'] == null && exifInfo.ifds.exif['PixelXDimension'] != null && exifInfo.ifds.exif['PixelYDimension'] != null){
@@ -318,12 +290,11 @@
 					if (!isNaN(pxX) && !isNaN(pxY)){
 						if (pxX != pxY){
 							if ((pxY > pxX && bmpdata.width > bmpdata.height) || (pxY < pxX && bmpdata.width < bmpdata.height)){								
-								trace('MISSING TAG BUT APPEARS ROTATED');
-								var tmpBitmapdata:BitmapData = rotateBmpData(bmpdata, 90);
-								if (tmpBitmapdata != bmpdata){
-									bmpdata.dispose();
-									bmpdata = tmpBitmapdata;
-								}
+								
+								var tmpBitmapdata:BitmapData = BmpUtils.rotateBmpData(bmpdata, 90);
+								bmpdata.dispose();
+								bmpdata = null;
+								bmpdata = tmpBitmapdata;
 							}
 						}
 					}
@@ -332,35 +303,27 @@
 				
 					//var rotation:int = ExifUtils.getEyeOrientedAngle(exifInfo.ifds);	
 					var tmpBitmap = new Bitmap(bmpdata);
+					
 					var rotatedBitmap:Bitmap = ExifUtils.getEyeOrientedBitmap(tmpBitmap, exifInfo.ifds);
 					tmpBitmap.bitmapData.dispose();
+					tmpBitmap = null;
+					
 					bmpdata = rotatedBitmap.bitmapData;
 					rotatedBitmap = null;
 				
 				}
 			} 
 			
-			if (destinationBounds != null && destinationBounds.width != destinationBounds.height){
-				// Shrink AFTER rotate
-				bmpdata = applyScaling(bmpdata);
-			}
+			var result:Vector.<BitmapData> = BmpUtils.scaleBmpDataWithMultipleOptions(bmpdata, outputOptions);
+			bmpdata.dispose();
 			
-			if (bmpdata){
-				onSuccess(bmpdata);
+			if (result && result.length > 0){
+				onSuccess(result);
 			} else {
 				throwError('Unable to save image');
 			}
 		}
 		
-		private function applyScaling(bmpdata:BitmapData):BitmapData {
-			
-			var newScale:Number = DeviceBmp.getScaleToConstrainWithin(new Rectangle(0,0,bmpdata.width, bmpdata.height), destinationBounds, resizeMode, allowUpscale);
-			if (newScale != 1){
-				bmpdata = DeviceBmp.scaleBmpData(bmpdata, newScale, hiQualityScaling);
-			}
-			return bmpdata;
-		}
-
 		private function onImageNotFound(e:ErrorEvent):void {
 			
 			throwError('Unable to open image');
@@ -463,141 +426,6 @@
 			
 		}
 		
-		// Bmp resize utils
-		// ================
-		
-		// Resize a bmp to |scale|	
-		public static function scaleBmpData(sourceBmpdata:BitmapData, scale:Number, hiQuality:Boolean = false):BitmapData {
-			
-			//var scale:Number = BmpHelper.getScaleToConstrainWithin(new Rectangle(0,0,sourceBmpdata.width,sourceBmpdata.height), bounds);
-			
-			if (scale == 1){
-				
-				return sourceBmpdata;
-			
-			} else {
-				
-				// If high quality, don't down scale any more than half at a time
-				// this gets much better results
-				
-				var matrix:Matrix
-				var minDownscale:Number = hiQuality ? .5 : 0;
-				var nextScale:Number;
-				var interemDownscale:Boolean;
-				var originalSourceDims:String = sourceBmpdata.width + "x" + sourceBmpdata.height;
-				
-				interemDownscale = true;
-				
-				while(interemDownscale){
-				
-					interemDownscale = false;
-					
-					if (scale < minDownscale){
-						interemDownscale = true;
-						nextScale = scale * (1/minDownscale)
-						scale = minDownscale
-					}
-					
-					matrix = new Matrix();
-					matrix.scale(scale, scale);
-					
-					var resizedBmpdata:BitmapData = new BitmapData(sourceBmpdata.width * scale, sourceBmpdata.height * scale, false, 0x000000);
-					resizedBmpdata.draw(sourceBmpdata, matrix, null, null, null, true);
-					
-					if (sourceBmpdata.width + "x" + sourceBmpdata.height != originalSourceDims){
-						// Only dispose bmpdata you created
-						sourceBmpdata.dispose();
-					}
-					
-					if (interemDownscale){
-						sourceBmpdata = resizedBmpdata;
-						scale = nextScale;
-					}
-				}
-				
-				return resizedBmpdata;
-			}
-		}
-		
-		// Calculates scale to best fit |sourceBounds| to |destinationBounds|, keeping proportions.
-		// Optionally |allowUpscale|
-		public static function getScaleToConstrainWithin(sourceBounds:Rectangle, destinationBounds:Rectangle, resizeMode:uint = 0, allowUpscale:Boolean = false):Number {
-			
-			// If already fits within then no scaling required
-			if (!allowUpscale &&
-				sourceBounds.width <= destinationBounds.width && 
-				sourceBounds.height <= destinationBounds.height){
-				return 1;
-				
-			}
-			
-			var srcRatio:Number = sourceBounds.width/sourceBounds.height;
-			var destRatio:Number = destinationBounds.width/destinationBounds.height;
-			
-			var keep_width:Boolean = false;
-			
-			if (resizeMode == DeviceBmp.RESIZE_MODE_FIT_HEIGHT){
-				keep_width = false;
-			} else if (resizeMode == DeviceBmp.RESIZE_MODE_FIT_WIDTH){
-				keep_width = true;
-			} else if (resizeMode == DeviceBmp.RESIZE_MODE_LETTERBOX && srcRatio>=destRatio){
-				keep_width = true;
-			} else if (resizeMode == DeviceBmp.RESIZE_MODE_NOGAPS && srcRatio<destRatio){
-				keep_width = true;
-			} 
-			
-			if (keep_width){
-				// Keep dest width.
-				return destinationBounds.width/sourceBounds.width;
-			} else {
-				// Keep dest height.
-				return destinationBounds.height/sourceBounds.height;
-			}
-			
-			return 1;
-		
-		};
-		
-		// Constrain |sourceBmpdata| to dimensions		
-		public static function constrainToDimensions(sourceBmpdata:BitmapData, targetBounds:Rectangle, resizeMode:uint = 0, allowUpscale:Boolean=false):BitmapData{
-			
-			var targetScale:Number = DeviceBmp.getScaleToConstrainWithin(new Rectangle(0,0,sourceBmpdata.width,sourceBmpdata.height), targetBounds, resizeMode, allowUpscale);
-			
-			return scaleBmpData(sourceBmpdata, targetScale);
-			
-		}
-		
-		// Rotate |sourceBmpdata| to given angle		
-		public static function rotateBmpData(sourceBmpdata:BitmapData, angle:Number):BitmapData {
-			
-			if (angle != 90 && angle != -90 && angle != 180){
-				return null;
-			}
-			
-			var m:Matrix = new Matrix();
-			m.rotate(angle * (Math.PI / 180));
-			var resultBmpdata:BitmapData
-			if (angle == 90 || angle == -90){
-				
-				resultBmpdata = new BitmapData(sourceBmpdata.height, sourceBmpdata.width, false, 0x000000);
-				
-				if (angle == 90){
-					m.translate( sourceBmpdata.height, 0 );
-				} else if (angle == -90){
-					m.translate( 0, sourceBmpdata.width);
-				}
-				
-			} else if (angle == 180){
-				
-				resultBmpdata = new BitmapData(sourceBmpdata.width, sourceBmpdata.height, false, 0x000000);
-				m.translate( sourceBmpdata.width, sourceBmpdata.height);
-				
-			}
-			
-			resultBmpdata.draw(sourceBmpdata, m, null, null, null, true);
-			
-			return resultBmpdata;
-			
-		}
+
 	}
 }
