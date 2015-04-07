@@ -122,16 +122,21 @@
 					picDir = File.userDirectory;
 					
 				}
-				picDir.addEventListener(Event.SELECT, onImageSelected);
+				picDir.addEventListener(Event.SELECT, onImageSelected, false, 0, true);
+				picDir.addEventListener(Event.CANCEL, onCaptureCancelled, false, 0, true);
 				picDir.browseForOpen("Choose a picture", [new FileFilter("JPEGs", "*.jpg;*.jpeg")]);
 			}
 			
 		}
 		
 		// Desktop only
-		private function onImageSelected(e:Event):void {
+		private function onImageSelected(event:Event):void {
 			
-			var pic:File = e.target as File;
+			var picDir:File = event.target as File;			
+			picDir.removeEventListener(Event.SELECT, onImageSelected);
+			picDir.removeEventListener(Event.CANCEL, onCaptureCancelled);
+			
+			var pic:File = event.target as File;
 			pic.removeEventListener(Event.SELECT, onImageSelected);
 			var fs:FileStream = new FileStream();
 			fs.open(pic, FileMode.READ);
@@ -158,7 +163,7 @@
 		
 		// CameraUI or CameraRoll
 		private function onCaptureCancelled( event:Event ):void {
-				
+				trace('onCaptureCancelled()');
 			if (onCancel != null){
 			  onCancel();
 			}
