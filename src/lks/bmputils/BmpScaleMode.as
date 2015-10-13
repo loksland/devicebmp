@@ -13,7 +13,5 @@
 		// First peform a |NOGAPS| then crop to destination bounds
 		public static const CROP:uint=4;
 			
-		
-		
 	}
 }

@@ -180,7 +180,7 @@
 				return options.destinationBounds.height/sourceBounds.height;
 			}
 			
-			return 1;
+			
 		
 		};
 	}
