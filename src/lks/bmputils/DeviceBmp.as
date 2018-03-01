@@ -31,6 +31,10 @@
 	import jp.shichiseki.exif.ExifLoader;
 	import flash.geom.Matrix;
 	import flash.system.Capabilities;
+	import lks.app.core.Main;
+	import lks.app.core.RootCanvas;
+	import flash.events.PermissionEvent;
+	import flash.permissions.PermissionStatus;
 			
 	public class DeviceBmp {
 		
@@ -48,6 +52,18 @@
 		private var exifInfo:ExifInfo
 		
 		private var outputOptions:Array;
+		
+
+		public static function isSourceSupported(src:uint):Boolean {
+			
+			if (src == SOURCE_CAMERA){
+				return CameraUI.isSupported;
+			} else if (src == SOURCE_BROWSE){
+				return CameraRoll.supportsBrowseForImage || isDesktop();
+			}
+			
+			return false;
+		}
 		
 		//- `source`  
 		//  *Type: uint constants `DeviceBmp.RESIZE_MODE_LETTERBOX`, `DeviceBmp.RESIZE_MODE_NOGAPS`, `DeviceBmp.RESIZE_MODE_FIT_WIDTH`, `DeviceBmp.RESIZE_MODE_FIT_HEIGHT`*
@@ -74,6 +90,12 @@
 		//  *Type: Boolean, Required: No, Default: false*  
 		//  Whether to allow upscaling during scaling processes	
 		
+		// Permissions as of AIR 24
+		// http://fpdownload.macromedia.com/pub/labs/flashruntimes/shared/air24_flashplayer24_releasenotes.pdf
+		
+		private var cameraUI:CameraUI
+		private var cameraRoll:CameraRoll
+		
 		public function DeviceBmp(source:uint, $onSuccess:Function, $onCancel:Function, $onError:Function, sourceFallbackEnabled:Boolean = true, ... $outputOptions:Array) {
 		
 			onSuccess = $onSuccess;
@@ -87,12 +109,25 @@
 			outputOptions = $outputOptions;
 			
 			if(source == SOURCE_CAMERA && CameraUI.isSupported) {
-                
-				var cameraUI:CameraUI = new CameraUI();
-				cameraUI.addEventListener(MediaEvent.COMPLETE, onPhotoComplete, false, 0, true);
-				cameraUI.addEventListener(Event.CANCEL, onCaptureCancelled, false, 0, true);
-				cameraUI.addEventListener(ErrorEvent.ERROR, onCameraError, false, 0, true);
-				cameraUI.launch(MediaType.IMAGE);
+
+				cameraUI = new CameraUI();
+				
+				if (CameraUI.permissionStatus != PermissionStatus.GRANTED) {
+					
+					cameraUI.addEventListener(PermissionEvent.PERMISSION_STATUS, onCameraPermissionStatusChange, false, 0, true);
+						
+					try {
+						cameraUI.requestPermission();
+					} catch(e:Error) {
+						// another request is in progress
+						throwError('Cannot request permissions as another request is in progress');
+					}
+					
+				} else {
+				
+					launchCameraUI(cameraUI);
+				
+				}
 				
 			} else if ((source == SOURCE_BROWSE || sourceFallbackEnabled) && CameraRoll.supportsBrowseForImage) {
 				
@@ -100,13 +135,28 @@
 				//crOpts.height = this.stage.stageHeight / 3;
 				//crOpts.width = this.stage.stageWidth / 3;
 				//crOpts.origin = new Rectangle(e.target.x, e.target.y, e.target.width, e.target.height);
-				var cameraRoll:CameraRoll = new CameraRoll();
-				cameraRoll.addEventListener(MediaEvent.SELECT, onPhotoComplete);
-				cameraRoll.addEventListener(Event.CANCEL, onCaptureCancelled, false, 0, true);
-				cameraRoll.addEventListener(ErrorEvent.ERROR, onCameraError, false, 0, true);
-				cameraRoll.browseForImage();
 				
-			} else if (Capabilities.playerType.toLowerCase().indexOf("desktop") != -1){
+				cameraRoll = new CameraRoll();
+				
+				if (CameraRoll.permissionStatus != PermissionStatus.GRANTED) {
+					
+					cameraRoll.addEventListener(PermissionEvent.PERMISSION_STATUS, onCameraRollPermissionStatusChange, false, 0, true);
+						
+					try {
+						cameraRoll.requestPermission();
+					} catch(e:Error) {
+						// another request is in progress
+						throwError('Cannot request permissions as another request is in progress');
+					}
+					
+				} else {
+				
+					launchCameraRoll(cameraRoll);
+				
+				}
+				
+			
+			} else if (isDesktop()){
 				
 				var picDir:File;
 				if (File.userDirectory.resolvePath("Pictures").exists){
@@ -125,9 +175,67 @@
 				picDir.addEventListener(Event.SELECT, onImageSelected, false, 0, true);
 				picDir.addEventListener(Event.CANCEL, onCaptureCancelled, false, 0, true);
 				picDir.browseForOpen("Choose a picture", [new FileFilter("JPEGs", "*.jpg;*.jpeg")]);
+				
+			} 
+			
+		}
+		
+		public static function isDesktop():Boolean {
+			
+			return Capabilities.playerType.toLowerCase().indexOf("desktop") != -1
+			
+		}
+		
+		// Permissions
+		// -----------
+		
+		private function onCameraPermissionStatusChange(e:PermissionEvent):void {
+				
+			if (e.status == PermissionStatus.GRANTED) {
+				launchCameraUI(cameraUI);
+			} else {
+				// permission denied
+				throwError('Cannot access camera. Please check permissions and try again. ['+String(e.status)+']');
 			}
 			
 		}
+		
+		private function onCameraRollPermissionStatusChange(e:PermissionEvent):void {
+				
+			if (e.status == PermissionStatus.GRANTED) {
+				launchCameraRoll(cameraRoll);
+			} else {
+				// permission denied
+				throwError('Cannot access camera roll. Please check permissions and try again. ['+String(e.status)+']');
+			}
+			
+		}		
+		
+		// Launch
+		// ------
+		// After permissions are granted
+		
+		private function launchCameraUI(cameraUI:CameraUI):void { 
+			
+			cameraUI.addEventListener(MediaEvent.COMPLETE, onPhotoComplete, false, 0, true);
+			cameraUI.addEventListener(Event.CANCEL, onCaptureCancelled, false, 0, true);
+			cameraUI.addEventListener(ErrorEvent.ERROR, onCameraError, false, 0, true);
+				
+			cameraUI.launch(MediaType.IMAGE);
+			
+		}
+		
+		private function launchCameraRoll(cameraRoll:CameraRoll):void { 
+			
+			cameraRoll.addEventListener(MediaEvent.SELECT, onPhotoComplete);
+			cameraRoll.addEventListener(Event.CANCEL, onCaptureCancelled, false, 0, true);
+			cameraRoll.addEventListener(ErrorEvent.ERROR, onCameraError, false, 0, true);
+			cameraRoll.browseForImage();
+				
+		}
+		
+		// Events
+		// ------
 		
 		// Desktop only
 		private function onImageSelected(event:Event):void {
@@ -163,7 +271,7 @@
 		
 		// CameraUI or CameraRoll
 		private function onCaptureCancelled( event:Event ):void {
-				trace('onCaptureCancelled()');
+			trace('onCaptureCancelled()');
 			if (onCancel != null){
 			  onCancel();
 			}
@@ -176,7 +284,7 @@
 			throwError('An error has occurred');
 			
 		}
-		
+	
 		// CameraUI or CameraRoll
 		private function onPhotoComplete(event:MediaEvent):void {
 			
@@ -430,7 +538,5 @@
 			onError = null;			
 			
 		}
-		
-
 	}
 }
